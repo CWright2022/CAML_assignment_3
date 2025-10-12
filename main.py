@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import numpy.typing as npt
+import torch
+from typing import Callable
 
 DATASET_FILEPATH = 'dataset'
 FEATURE_VECTORS_FILEPATH = os.path.join(DATASET_FILEPATH, 'feature_vectors')
@@ -10,6 +12,54 @@ HASH_MAPPINGS_FILEPATH = os.path.join(DATASET_FILEPATH, 'sha256_family.csv')
 COLOR_DEFAULT = '\x1b[39m'
 COLOR_GREEN = '\x1b[32m'
 COLOR_RED = '\x1b[31m'
+
+
+class SVM:
+    def __init__(self, feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str], ground_truth: dict[str, str]):
+        self.feature_vectors = feature_vectors
+        self.sample_hashes = sample_hashes
+        self.ground_truth_str = ground_truth
+        self.ground_truth_int = dict()
+
+        # Model parameters
+        self.C = 1
+
+        # Trainable model values
+        self.w = torch.zeros(self.feature_vectors.shape[1], dtype=torch.float32, requires_grad=True)
+        self.b = torch.zeros(1, dtype=torch.float32, requires_grad=True)
+    
+    def define_classes(self, class_distinguisher: Callable[[str], int]):
+        """Initializes ground_truth_int, a dictionary mapping sample hashes to either -1 or 1 class labels"""
+        for sample_hash, class_ in self.ground_truth_str.items():
+            self.ground_truth_int[sample_hash] = class_distinguisher(class_)
+
+    def calculate_prediction(self, feature_vector: npt.NDArray[np.bool_]) -> float:
+        prediction = np.dot(self.w, feature_vector) + self.b
+        return float(prediction)
+
+    def calculate_hinge_loss(self, raw_prediction: int, true_class_label: int) -> float:
+        hinge_loss = max(0, 1 - (raw_prediction*true_class_label)) + (self.C * (np.linalg.norm(self.w) / 2))
+        return float(hinge_loss)
+    
+    def evaluate(self, epochs: int, lr: float, train_test_split: float):
+        # Shuffle and then do train/test split
+        p = np.random.permutation(self.feature_vectors.shape[0])
+        feature_vectors_shuffled = self.feature_vectors[p]
+        sample_hashes_shuffled = [self.sample_hashes[i] for i in p]
+
+        index_split_value = train_test_split*feature_vectors_shuffled.shape[0]
+        feature_vector_train = feature_vectors_shuffled[:index_split_value]
+        feature_vector_test = feature_vectors_shuffled[index_split_value:]
+        sample_hashes_train = sample_hashes_shuffled[:index_split_value]
+        sample_hashes_test = sample_hashes_shuffled[index_split_value:]
+
+        # problem for later...
+        # TODO: gotta do the stochastic gradient decent here using torch stuff
+
+
+
+
+
 
 def green_print(msg: str):
     """Convenient function for printing green text"""
@@ -85,11 +135,11 @@ def load_data(benign_samples_limit: int = 1000) -> tuple[npt.NDArray[np.bool_], 
 
 def main():
     benign_samples_limit = 5561
-    features, sample_hashes, ground_truth = load_data(benign_samples_limit)
+    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit)
     green_print('Loaded dataset!')
-    print(f'{features.shape[0]} samples')
-    print(f'{features.shape[1]} features per sample')
-    print(f'Percent that is benign: {(benign_samples_limit/features.shape[0])*100:.2f}%')
+    print(f'{feature_vectors.shape[0]} samples')
+    print(f'{feature_vectors.shape[1]} features per sample')
+    print(f'Percent that is benign: {(benign_samples_limit/feature_vectors.shape[0])*100:.2f}%')
     print()
 
 
