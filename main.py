@@ -15,6 +15,7 @@ COLOR_RED = '\x1b[31m'
 
 
 class SVM:
+    """Models a Support Vector Machine (SVM) to make decisions"""
     def __init__(self, feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str], ground_truth: dict[str, str]):
         self.feature_vectors = feature_vectors
         self.sample_hashes = sample_hashes
@@ -44,21 +45,71 @@ class SVM:
         hinge_loss = hinge_loss + self.C * (torch.norm(self.w) / 2)
         return hinge_loss
     
+    def train(self, epochs: int, lr: float):
+        """Train on all the data that is given. No testing here. Used by the Mutli_SVM"""
+        # TODO: Fix the code duplication between this function and the evaluate function
+        # Shuffle and then do train/test split
+        p = np.random.permutation(self.feature_vectors.shape[0])
+        feature_vectors_train = self.feature_vectors[p]
+        sample_hashes_train = [self.sample_hashes[i] for i in p]
+
+        # Convert everything to torch tensors
+        X_train = torch.tensor(feature_vectors_train, dtype=torch.float32)
+
+        y_train = torch.tensor([self.ground_truth_int[h] for h in sample_hashes_train], dtype=torch.float32)
+
+        # Training loop
+        for epoch in range(1, epochs+1):
+            total_loss = 0
+
+            # Randomize the order of the train sets
+            p = torch.randperm(len(X_train))
+            X_train, y_train = X_train[p], y_train[p]
+            
+            # Loop over every sample in the training data
+            # For each sample, calculate hinge loss and update gradients
+            for sample, true_label in zip(X_train, y_train):
+                # Make prediction
+                y_pred = self.calculate_prediction_torch(sample)
+
+                # Calculate hinge loss
+                hinge_loss = self.calculate_hinge_loss_torch(y_pred, true_label)
+
+                # Compute gradients
+                hinge_loss.backward()
+
+                # Update model values
+                # Pylance might complain without the "type: ignore" comments
+                with torch.no_grad():
+                    self.w -= lr * self.w.grad  # type: ignore
+                    self.b -= lr * self.b.grad  # type: ignore
+                
+                self.w.grad.zero_()  # type: ignore
+                self.b.grad.zero_()  # type: ignore
+
+                total_loss += hinge_loss.item()
+
+            if self.verbose:
+                if epoch % 1 == 0:
+                    average_loss = total_loss / len(X_train)
+                    print(f'Epoch {epoch}/{epochs} - Average Loss: {average_loss:.4f}')
+    
     def evaluate(self, epochs: int, lr: float, train_test_split: float):
+        """Fully train, test, and evaluate the performance of the model"""
         # Shuffle and then do train/test split
         p = np.random.permutation(self.feature_vectors.shape[0])
         feature_vectors_shuffled = self.feature_vectors[p]
         sample_hashes_shuffled = [self.sample_hashes[i] for i in p]
 
         index_split_value = int(train_test_split*feature_vectors_shuffled.shape[0])
-        feature_vector_train = feature_vectors_shuffled[:index_split_value]
-        feature_vector_test = feature_vectors_shuffled[index_split_value:]
+        feature_vectors_train = feature_vectors_shuffled[:index_split_value]
+        feature_vectors_test = feature_vectors_shuffled[index_split_value:]
         sample_hashes_train = sample_hashes_shuffled[:index_split_value]
         sample_hashes_test = sample_hashes_shuffled[index_split_value:]
 
         # Convert everything to torch tensors
-        X_train = torch.tensor(feature_vector_train, dtype=torch.float32)
-        X_test = torch.tensor(feature_vector_test, dtype=torch.float32)
+        X_train = torch.tensor(feature_vectors_train, dtype=torch.float32)
+        X_test = torch.tensor(feature_vectors_test, dtype=torch.float32)
 
         y_train = torch.tensor([self.ground_truth_int[h] for h in sample_hashes_train], dtype=torch.float32)
         y_test = torch.tensor([self.ground_truth_int[h] for h in sample_hashes_test], dtype=torch.float32)
@@ -84,7 +135,7 @@ class SVM:
                 hinge_loss.backward()
 
                 # Update model values
-                # Pylance might complain with the "type: ignore" comments
+                # Pylance might complain without the "type: ignore" comments
                 with torch.no_grad():
                     self.w -= lr * self.w.grad  # type: ignore
                     self.b -= lr * self.b.grad  # type: ignore
@@ -112,6 +163,64 @@ class SVM:
         green_print(f'Accuracy: {100*correct_counter/len(X_test):.2f}%')
 
 
+class SVM_OneVsAll:
+    """Models using many SVMs and One-Vs-All classification to make more than just binary decisions"""
+    def __init__(self, feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str], ground_truth: dict[str, str], train_test_split=0.8):
+        self.ground_truth = ground_truth
+        self.verbose = False
+
+        p = np.random.permutation(len(feature_vectors))
+        feature_vectors_shuffled = feature_vectors[p]
+        sample_hashes_shuffled = [sample_hashes[i] for i in p]
+
+        index_split_value = int(train_test_split*feature_vectors_shuffled.shape[0])
+        self.feature_vectors_train = feature_vectors_shuffled[:index_split_value]
+        self.feature_vectors_test = feature_vectors_shuffled[index_split_value:]
+        self.sample_hashes_train = sample_hashes_shuffled[:index_split_value]
+        self.sample_hashes_test = sample_hashes_shuffled[index_split_value:]
+
+        # Two parallel arrays holding each SVM and the malware type that it classifies
+        self.svms: list[SVM] = []
+        self.malware_labels = []
+    
+    def append_svm(self, malware_label: str):
+        """Adds an SVM to this multiclassifier that distinguishes the given malware label from all other malware labels"""
+        svm = SVM(self.feature_vectors_train, self.sample_hashes_train, self.ground_truth)
+        svm.define_classes(lambda x: 1 if x == malware_label else -1)
+        svm.verbose = self.verbose
+        self.svms.append(svm)
+        self.malware_labels.append(malware_label)
+    
+    def train_all(self, epochs, lr):
+        for i, svm in enumerate(self.svms):
+            if self.verbose:
+                print(f'Training SVM {i+1}/{len(self.svms)} for malware type {self.malware_labels[i]}')
+            svm.train(epochs, lr)
+    
+    def classify_sample(self, sample: npt.NDArray[np.bool_]) -> str:
+        sample_torch = torch.tensor(sample, dtype=torch.float32)
+        pred_results = []
+        for svm in self.svms:
+            pred_results.append(svm.calculate_prediction_torch(sample_torch))
+        
+        pred_values = [p.item() for p in pred_results]
+        label = self.malware_labels[int(np.argmax(pred_values))]
+
+        return label
+    
+    def test(self):
+        correct_counter = 0
+        for sample, sample_hash in zip(self.feature_vectors_test, self.sample_hashes_test):
+            true_label = self.ground_truth.get(sample_hash)
+            predicted_label = self.classify_sample(sample)
+
+            if true_label == predicted_label:
+                correct_counter += 1
+        
+        green_print(f'{correct_counter}/{len(self.feature_vectors_test)} were classified correctly.')
+        green_print(f'Accuracy: {100*correct_counter/len(self.feature_vectors_test):.2f}%')
+
+
 def green_print(msg: str):
     """Convenient function for printing green text"""
     print(f'{COLOR_GREEN}{msg}{COLOR_DEFAULT}')
@@ -121,7 +230,7 @@ def red_print(msg: str):
     print(f'{COLOR_RED}{msg}{COLOR_DEFAULT}')
 
 
-def load_data(benign_samples_limit: int = 1000) -> tuple[npt.NDArray[np.bool_], list[str], dict[str, str]]:
+def load_data(benign_samples_limit: int = 1000, verbose: bool = True) -> tuple[npt.NDArray[np.bool_], list[str], dict[str, str]]:
     """
     Loads the full dataset from the data contained in the dataset directory
 
@@ -181,23 +290,51 @@ def load_data(benign_samples_limit: int = 1000) -> tuple[npt.NDArray[np.bool_], 
                 feature_vectors[sample_index][feature_index] = 1
         sample_index += 1
 
+    # Print out information if verbose is set to true
+    if verbose:
+        green_print('Loaded dataset!')
+        print(f'{feature_vectors.shape[0]} samples')
+        print(f'{feature_vectors.shape[1]} features per sample')
+        print(f'Percent that is benign: {(benign_samples_limit/feature_vectors.shape[0])*100:.2f}%')
+        print()
+
+
     return feature_vectors, sample_hashes, ground_truth
 
 
-def main():
-    benign_samples_limit = 5561
-    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit)
-    green_print('Loaded dataset!')
-    print(f'{feature_vectors.shape[0]} samples')
-    print(f'{feature_vectors.shape[1]} features per sample')
-    print(f'Percent that is benign: {(benign_samples_limit/feature_vectors.shape[0])*100:.2f}%')
-    print()
-
+def malware_vs_benign_classifier(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str], ground_truth: dict[str, str]) -> None:
     svm = SVM(feature_vectors, sample_hashes, ground_truth)
     svm.define_classes(lambda x: 1 if x == 'Benign' else -1)
     svm.verbose = True
 
     svm.evaluate(20, 1e-4, 0.8)
+
+
+def one_vs_all(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str], ground_truth: dict[str, str]) -> None:
+    multi_svm = SVM_OneVsAll(feature_vectors, sample_hashes, ground_truth, train_test_split=0.8)
+    multi_svm.verbose = True
+    all_malware_labels = set(ground_truth.values())
+    print(f'Found {len(all_malware_labels)} unique malware types in the dataset')
+    for malware_label in all_malware_labels:
+        multi_svm.append_svm(malware_label)
+    
+    multi_svm.train_all(5, 1e-3)
+
+    multi_svm.test()
+
+
+def main():
+    # Malware vs. Benign Classifier
+    #feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=5561)
+    #malware_vs_benign_classifier(feature_vectors, sample_hashes, ground_truth)
+
+    # Now the other types of classifiers
+    # For these types, we do not want the benign samples
+    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0)
+
+    one_vs_all(feature_vectors, sample_hashes, ground_truth)
+    
+
 
 
 
