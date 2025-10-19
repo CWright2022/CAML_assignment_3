@@ -1,4 +1,5 @@
 import os
+from random import shuffle
 import numpy as np
 import numpy.typing as npt
 import torch
@@ -241,33 +242,35 @@ def load_data(benign_samples_limit: int = 1000, verbose: bool = True) -> tuple[n
     """
     feature_to_index = dict()
     ground_truth = dict()
-    num_samples = 0
-    benign_samples = 0
     feature_count = 0
 
+    # grab all the malicious files
     with open(HASH_MAPPINGS_FILEPATH, 'r') as hash_mappings_file:
         for line in hash_mappings_file:
             if line.startswith('sha256'):  # skip the header line
                 continue
             line = line.strip()
             ground_truth[line.split(',')[0]] = line.split(',')[1]
+    
+    # now grab however many benign samples we want
+    benign_sample_hashes = []
+    for filename in os.listdir(FEATURE_VECTORS_FILEPATH):
+        if filename not in ground_truth:  # it is benign
+            benign_sample_hashes.append(filename)
+    shuffle(benign_sample_hashes)
+    for benign_sample_hash in benign_sample_hashes[:benign_samples_limit]:
+        ground_truth[benign_sample_hash] = 'Benign'
 
     # this will be easier if we count how many unique features there are total first
-    for filename in os.listdir(FEATURE_VECTORS_FILEPATH):
-        if filename not in ground_truth:  # it is a benign sample
-            if benign_samples >= benign_samples_limit:  # we have enough benign samples already
-                continue
-            benign_samples += 1
-            ground_truth[filename] = 'Benign'
-        num_samples += 1
-
-        with open(os.path.join(FEATURE_VECTORS_FILEPATH, filename), 'r') as feature_vectors_file:
+    for sample_hash in ground_truth:
+        with open(os.path.join(FEATURE_VECTORS_FILEPATH, sample_hash), 'r') as feature_vectors_file:
             for feature in feature_vectors_file:
                 feature = feature.strip()
                 if feature not in feature_to_index:
                     feature_to_index[feature] = feature_count
                     feature_count += 1
 
+    num_samples = len(ground_truth)
     num_features = len(feature_to_index)
     green_print(f'Found {num_features} unique features!\n')
 
@@ -277,6 +280,7 @@ def load_data(benign_samples_limit: int = 1000, verbose: bool = True) -> tuple[n
     sample_index = 0
     for filename in ground_truth:
         # check that this file is actually present
+        # there is no way it would not be but just to make sure I guess
         full_filepath = os.path.join(FEATURE_VECTORS_FILEPATH, filename)
         if not os.path.exists(full_filepath):
             red_print(f'Could not find the file corresponding to hash {filename}. Skipping...')
@@ -312,7 +316,7 @@ def malware_vs_benign_classifier(feature_vectors: npt.NDArray[np.bool_], sample_
 
 def one_vs_all(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str], ground_truth: dict[str, str]) -> None:
     multi_svm = SVM_OneVsAll(feature_vectors, sample_hashes, ground_truth, train_test_split=0.8)
-    multi_svm.verbose = True
+    multi_svm.verbose = False
     all_malware_labels = set(ground_truth.values())
     print(f'Found {len(all_malware_labels)} unique malware types in the dataset')
     for malware_label in all_malware_labels:
@@ -325,17 +329,15 @@ def one_vs_all(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str],
 
 def main():
     # Malware vs. Benign Classifier
-    #feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=5561)
-    #malware_vs_benign_classifier(feature_vectors, sample_hashes, ground_truth)
+    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=5561)
+    malware_vs_benign_classifier(feature_vectors, sample_hashes, ground_truth)
 
     # Now the other types of classifiers
     # For these types, we do not want the benign samples
-    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0)
+    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0)
 
-    one_vs_all(feature_vectors, sample_hashes, ground_truth)
+    # one_vs_all(feature_vectors, sample_hashes, ground_truth)
     
-
-
 
 
 if __name__ == '__main__':
