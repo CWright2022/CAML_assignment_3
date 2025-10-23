@@ -4,6 +4,10 @@ import numpy as np
 import numpy.typing as npt
 import torch
 from typing import Callable
+from sklearn.svm import LinearSVC, SVC
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 
 DATASET_FILEPATH = 'dataset'
 FEATURE_VECTORS_FILEPATH = os.path.join(DATASET_FILEPATH, 'feature_vectors')
@@ -162,6 +166,18 @@ class SVM:
         
         green_print(f'{correct_counter}/{len(X_test)} were classified correctly.')
         green_print(f'Accuracy: {100*correct_counter/len(X_test):.2f}%')
+
+        importance = torch.abs(self.w).detach().numpy()
+        top10_idx = np.argsort(importance)[-10:]
+        bottom10_idx = np.argsort(importance)[:10]
+
+        green_print("\nTop 10 Most Important Feature Indices and Weights:")
+        for idx in reversed(top10_idx):
+            print(f"Feature {idx}: Weight = {self.w[idx].item():.6f}")
+
+        green_print("\nBottom 10 Least Important Feature Indices and Weights:")
+        for idx in bottom10_idx:
+            print(f"Feature {idx}: Weight = {self.w[idx].item():.6f}")
 
 
 class SVM_OneVsAll:
@@ -356,4 +372,28 @@ def main():
 
 
 if __name__ == '__main__':
+    def sklearn_svm_comparison(feature_vectors, labels):
+        print("\n--- SVM Kernel Comparison (scikit-learn) ---")
+        X_train, X_test, y_train, y_test = train_test_split(
+            feature_vectors, labels, test_size=0.2, random_state=42
+        )
+
+        # Linear SVM
+        linear_clf = LinearSVC(max_iter=2000)
+        linear_clf.fit(X_train, y_train)
+        y_pred_linear = linear_clf.predict(X_test)
+        acc_linear = accuracy_score(y_test, y_pred_linear)
+        print(f"Linear SVM Accuracy: {acc_linear * 100:.2f}%")
+
+        # RBF SVM
+        rbf_clf = SVC(kernel='rbf', gamma='scale')
+        rbf_clf.fit(X_train, y_train)
+        y_pred_rbf = rbf_clf.predict(X_test)
+        acc_rbf = accuracy_score(y_test, y_pred_rbf)
+        print(f"RBF Kernel SVM Accuracy: {acc_rbf * 100:.2f}%")
     main()
+    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=1000, verbose=False)
+    #convert malware labels into numeric values for sklearn
+    labels = [1 if ground_truth[h] == 'Benign' else 0 for h in sample_hashes]
+    #run comparison 
+    sklearn_svm_comparison(feature_vectors, labels)
