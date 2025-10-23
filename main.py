@@ -231,9 +231,14 @@ def red_print(msg: str):
     print(f'{COLOR_RED}{msg}{COLOR_DEFAULT}')
 
 
-def load_data(benign_samples_limit: int = 1000, verbose: bool = True) -> tuple[npt.NDArray[np.bool_], list[str], dict[str, str]]:
+def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int = 0, verbose: bool = True) -> tuple[npt.NDArray[np.bool_], list[str], dict[str, str]]:
     """
     Loads the full dataset from the data contained in the dataset directory
+
+    Args:
+        benign_samples_limit (int): maximum number of benign samples to load
+        top_malware_samples_limit (int): number of malware samples to load, prioritizing the ones with the most samples
+        verbose (bool): whether to print data summary after loading
 
     Returns:
         feature_vectors (2D numpy array): contains an array for each sample, with 1s and 0s denoting whether each feature is present in that sample
@@ -273,6 +278,16 @@ def load_data(benign_samples_limit: int = 1000, verbose: bool = True) -> tuple[n
     num_samples = len(ground_truth)
     num_features = len(feature_to_index)
     green_print(f'Found {num_features} unique features!\n')
+
+    # If we defined a top malware samples limit, resolve that now
+    # Go through ground truth and delete malware samples we do not want
+    if top_malware_samples_limit > 0:
+        malware_labels, counts = np.unique(list(ground_truth.values()), return_counts=True)
+        labels_counts_sorted = sorted(zip(malware_labels, counts), key=lambda x: x[1])
+        ground_truth_items = list(ground_truth.items())
+        for sample_hash, malware_label in ground_truth_items:
+            if malware_label not in [x[0] for x in labels_counts_sorted][:top_malware_samples_limit]:
+                del ground_truth[sample_hash]
 
     # Now create the feature matrix
     feature_vectors = np.zeros((num_samples, num_features), dtype=bool)
@@ -329,14 +344,14 @@ def one_vs_all(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str],
 
 def main():
     # Malware vs. Benign Classifier
-    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=5561)
-    malware_vs_benign_classifier(feature_vectors, sample_hashes, ground_truth)
+    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=5561)
+    # malware_vs_benign_classifier(feature_vectors, sample_hashes, ground_truth)
 
     # Now the other types of classifiers
     # For these types, we do not want the benign samples
-    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0)
-
-    # one_vs_all(feature_vectors, sample_hashes, ground_truth)
+    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
+    print(ground_truth)
+    one_vs_all(feature_vectors, sample_hashes, ground_truth)
     
 
 
