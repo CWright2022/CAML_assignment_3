@@ -274,13 +274,14 @@ def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int =
             ground_truth[line.split(',')[0]] = line.split(',')[1]
     
     # now grab however many benign samples we want
-    benign_sample_hashes = []
-    for filename in os.listdir(FEATURE_VECTORS_FILEPATH):
-        if filename not in ground_truth:  # it is benign
-            benign_sample_hashes.append(filename)
-    shuffle(benign_sample_hashes)
-    for benign_sample_hash in benign_sample_hashes[:benign_samples_limit]:
-        ground_truth[benign_sample_hash] = 'Benign'
+    if benign_samples_limit > 0:
+        benign_sample_hashes = []
+        for filename in os.listdir(FEATURE_VECTORS_FILEPATH):
+            if filename not in ground_truth:  # it is benign
+                benign_sample_hashes.append(filename)
+        shuffle(benign_sample_hashes)
+        for benign_sample_hash in benign_sample_hashes[:benign_samples_limit]:
+            ground_truth[benign_sample_hash] = 'Benign'
 
     # this will be easier if we count how many unique features there are total first
     for sample_hash in ground_truth:
@@ -291,19 +292,19 @@ def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int =
                     feature_to_index[feature] = feature_count
                     feature_count += 1
 
-    num_samples = len(ground_truth)
-    num_features = len(feature_to_index)
-    green_print(f'Found {num_features} unique features!\n')
-
     # If we defined a top malware samples limit, resolve that now
     # Go through ground truth and delete malware samples we do not want
     if top_malware_samples_limit > 0:
         malware_labels, counts = np.unique(list(ground_truth.values()), return_counts=True)
-        labels_counts_sorted = sorted(zip(malware_labels, counts), key=lambda x: x[1])
+        labels_counts_sorted = sorted(zip(malware_labels, counts), key=lambda x: x[1], reverse=True)
         ground_truth_items = list(ground_truth.items())
         for sample_hash, malware_label in ground_truth_items:
             if malware_label not in [x[0] for x in labels_counts_sorted][:top_malware_samples_limit]:
                 del ground_truth[sample_hash]
+    
+    num_samples = len(ground_truth)
+    num_features = len(feature_to_index)
+    green_print(f'Found {num_features} unique features!\n')
 
     # Now create the feature matrix
     feature_vectors = np.zeros((num_samples, num_features), dtype=bool)
@@ -387,16 +388,16 @@ def main():
     # Now the other types of classifiers
     # For these types, we do not want the benign samples
     feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
-    print(ground_truth)
-    one_vs_all(feature_vectors, sample_hashes, ground_truth)
+    #one_vs_all(feature_vectors, sample_hashes, ground_truth)
 
+    """
     # SVM Comparisons
     feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=1000, verbose=False)
     #convert malware labels into numeric values for sklearn
     labels = [1 if ground_truth[h] == 'Benign' else 0 for h in sample_hashes]
     #run comparison 
     sklearn_svm_comparison(feature_vectors, labels)
-    
+    """
 
 
 if __name__ == '__main__':
