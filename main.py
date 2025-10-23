@@ -226,14 +226,40 @@ class SVM_OneVsAll:
         return label
     
     def test(self):
+        # Get list of malware labels
+        malware_labels = list(set(self.ground_truth.values()))
+        n = len(malware_labels)
+
         correct_counter = 0
+        confusion_matrix = np.zeros((n, n), dtype=int)
         for sample, sample_hash in zip(self.feature_vectors_test, self.sample_hashes_test):
             true_label = self.ground_truth.get(sample_hash)
+            if true_label is None:
+                red_print('Something went wrong.')
+                continue
             predicted_label = self.classify_sample(sample)
 
             if true_label == predicted_label:
                 correct_counter += 1
-        
+            
+            # Build confusion matrix
+            true_index = malware_labels.index(true_label)
+            predicted_index = malware_labels.index(predicted_label)
+            confusion_matrix[true_index][predicted_index] += 1
+
+        # Print confusion matrix
+        print()
+        print('Confusion Matrix:')
+        for i, row in enumerate(confusion_matrix):
+            for j, val in enumerate(row):
+                if i == j:
+                    color = COLOR_GREEN
+                else:
+                    color = COLOR_RED
+                print(f'{color}{val: <4}{COLOR_DEFAULT}', end='')
+            print()
+
+        print()
         green_print(f'{correct_counter}/{len(self.feature_vectors_test)} were classified correctly.')
         green_print(f'Accuracy: {100*correct_counter/len(self.feature_vectors_test):.2f}%')
 
@@ -334,7 +360,6 @@ def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int =
         print(f'Percent that is benign: {(benign_samples_limit/feature_vectors.shape[0])*100:.2f}%')
         print()
 
-
     return feature_vectors, sample_hashes, ground_truth
 
 
@@ -388,7 +413,7 @@ def main():
     # Now the other types of classifiers
     # For these types, we do not want the benign samples
     feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
-    #one_vs_all(feature_vectors, sample_hashes, ground_truth)
+    one_vs_all(feature_vectors, sample_hashes, ground_truth)
 
     """
     # SVM Comparisons
