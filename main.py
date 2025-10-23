@@ -358,6 +358,27 @@ def one_vs_all(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str],
     multi_svm.test()
 
 
+def sklearn_svm_comparison(feature_vectors, labels):
+    print("\n--- SVM Kernel Comparison (scikit-learn) ---")
+    X_train, X_test, y_train, y_test = train_test_split(
+        feature_vectors, labels, test_size=0.2, random_state=42
+    )
+
+    # Linear SVM
+    linear_clf = LinearSVC(max_iter=2000)
+    linear_clf.fit(X_train, y_train)
+    y_pred_linear = linear_clf.predict(X_test)
+    acc_linear = accuracy_score(y_test, y_pred_linear)
+    print(f"Linear SVM Accuracy: {acc_linear * 100:.2f}%")
+
+    # RBF SVM
+    rbf_clf = SVC(kernel='rbf', gamma='scale')
+    rbf_clf.fit(X_train, y_train)
+    y_pred_rbf = rbf_clf.predict(X_test)
+    acc_rbf = accuracy_score(y_test, y_pred_rbf)
+    print(f"RBF Kernel SVM Accuracy: {acc_rbf * 100:.2f}%")
+
+
 def main():
     # Malware vs. Benign Classifier
     # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=5561)
@@ -368,32 +389,16 @@ def main():
     feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
     print(ground_truth)
     one_vs_all(feature_vectors, sample_hashes, ground_truth)
-    
 
-
-if __name__ == '__main__':
-    def sklearn_svm_comparison(feature_vectors, labels):
-        print("\n--- SVM Kernel Comparison (scikit-learn) ---")
-        X_train, X_test, y_train, y_test = train_test_split(
-            feature_vectors, labels, test_size=0.2, random_state=42
-        )
-
-        # Linear SVM
-        linear_clf = LinearSVC(max_iter=2000)
-        linear_clf.fit(X_train, y_train)
-        y_pred_linear = linear_clf.predict(X_test)
-        acc_linear = accuracy_score(y_test, y_pred_linear)
-        print(f"Linear SVM Accuracy: {acc_linear * 100:.2f}%")
-
-        # RBF SVM
-        rbf_clf = SVC(kernel='rbf', gamma='scale')
-        rbf_clf.fit(X_train, y_train)
-        y_pred_rbf = rbf_clf.predict(X_test)
-        acc_rbf = accuracy_score(y_test, y_pred_rbf)
-        print(f"RBF Kernel SVM Accuracy: {acc_rbf * 100:.2f}%")
-    main()
+    # SVM Comparisons
     feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=1000, verbose=False)
     #convert malware labels into numeric values for sklearn
     labels = [1 if ground_truth[h] == 'Benign' else 0 for h in sample_hashes]
     #run comparison 
     sklearn_svm_comparison(feature_vectors, labels)
+    
+
+
+if __name__ == '__main__':
+    main()
+    
