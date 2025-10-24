@@ -234,9 +234,7 @@ class SVM_OneVsAll:
         return label
     
     def test(self):
-        # Get list of malware labels
-        malware_labels = list(set(self.ground_truth.values()))
-        n = len(malware_labels)
+        n = len(self.malware_labels)
 
         correct_counter = 0
         confusion_matrix = np.zeros((n, n), dtype=int)
@@ -251,8 +249,129 @@ class SVM_OneVsAll:
                 correct_counter += 1
             
             # Build confusion matrix
-            true_index = malware_labels.index(true_label)
-            predicted_index = malware_labels.index(predicted_label)
+            true_index = self.malware_labels.index(true_label)
+            predicted_index = self.malware_labels.index(predicted_label)
+            confusion_matrix[true_index][predicted_index] += 1
+
+        # Print confusion matrix
+        print()
+        print('Confusion Matrix:')
+        for i, row in enumerate(confusion_matrix):
+            for j, val in enumerate(row):
+                if i == j:
+                    color = COLOR_GREEN
+                else:
+                    color = COLOR_RED
+                print(f'{color}{val: <4}{COLOR_DEFAULT}', end='')
+            print()
+
+        print()
+        green_print(f'{correct_counter}/{len(self.feature_vectors_test)} were classified correctly.')
+        green_print(f'Accuracy: {100*correct_counter/len(self.feature_vectors_test):.2f}%')
+
+
+class SVM_OneVsOne:
+    """Models using many SVMs and One-Vs-All classification to make more than just binary decisions"""
+    def __init__(self,  feature_vectors: npt.NDArray[np.bool], sample_hashes: list[str], ground_truth: dict[str, str], train_test_split=0.8):
+        self.ground_truth = ground_truth
+        self.verbose = False
+
+        p = np.random.permutation(len(feature_vectors))
+        feature_vectors_shuffled = feature_vectors[p]
+        sample_hashes_shuffled = [sample_hashes[i] for i in p]
+
+        index_split_value = int(train_test_split*feature_vectors_shuffled.shape[0])
+        self.feature_vectors_train = feature_vectors_shuffled[:index_split_value]
+        self.feature_vectors_test = feature_vectors_shuffled[index_split_value:]
+        self.sample_hashes_train = sample_hashes_shuffled[:index_split_value]
+        self.sample_hashes_test = sample_hashes_shuffled[index_split_value:]
+
+        # Two parallel arrays holding each SVM and the malware type that it classifies
+        self.svms: list[list[SVM]] = []
+        self.malware_labels = []
+
+    def append_svm(self, malware_label: str):
+        """
+        Adds multiple SVMs to this multiclassifier. One SVM for each of this malware label and every other label pair
+        Because malware labels are added sequentially, generating an SVM for the label currently being added vs. every other label added so far
+        will create the appropriate number of SVMs (n*(n-1)/2)
+        """
+        # NOTE: If this is the first one, there are no SVMs that can be created because there are no other samples
+        # Therefore, an empty list will be appended, which is okay
+        this_svms: list[SVM] = []
+        for other_label in self.malware_labels:
+            # only want the samples from our feature_vectors_train that are this label or other label
+            this_feature_vectors = np.zeros((0,self.feature_vectors_train.shape[1]), dtype=np.bool)
+            this_sample_hashes = []
+            for feature_vector, sample_hash in zip(self.feature_vectors_train, self.sample_hashes_train):
+                if self.ground_truth.get(sample_hash) == malware_label or self.ground_truth.get(sample_hash) == other_label:
+                    this_feature_vectors = np.vstack((this_feature_vectors, feature_vector))
+                    this_sample_hashes.append(sample_hash)
+
+            svm = SVM(this_feature_vectors, this_sample_hashes, self.ground_truth)
+            svm.define_classes(lambda x: 1 if x == malware_label else -1)
+            this_svms.append(svm)
+        self.svms.append(this_svms)
+        self.malware_labels.append(malware_label)
+    
+    def train_all(self, epochs, lr):
+        total_labels = len(self.svms)
+        for i, svms in enumerate(self.svms):
+            if not len(svms):
+                continue
+            if self.verbose:
+                print(f'Training SVMs for label {i+1}/{total_labels} ({self.malware_labels[i]})')
+            total_svms = len(svms)
+            for j, svm in enumerate(svms):
+                if self.verbose:
+                    print(f'Training SVM {j+1}/{total_svms}')
+                svm.train(epochs, lr)
+
+    def classify_sample(self, sample: npt.NDArray[np.bool_]) -> str:
+        sample_torch = torch.tensor(sample, dtype=torch.float32)
+        pred_results = []
+        for svms in self.svms:
+            this_pred_results = []
+            for svm in svms:
+                this_pred_results.append(svm.calculate_prediction_torch(sample_torch).item())
+            pred_results.append(this_pred_results)
+        
+        # Voting
+        # Each SVM gives +1 vote to one label
+        # Most votes wins
+        votes = [0]*len(self.malware_labels)
+        for pos_result_index, result_list in enumerate(pred_results):
+            if not len(result_list):  # this if the first one, which is empty
+                continue
+            for neg_result_index, result in enumerate(result_list):
+                if result > 0:
+                    votes[pos_result_index] += 1
+                elif result < 0:
+                    votes[neg_result_index] += 1
+                else:  # If it is exactly 0, no one gets a vote
+                    pass
+            
+        prediction_result_label = self.malware_labels[np.argmax(votes)]
+        return prediction_result_label
+
+    def test(self):
+        n = len(self.malware_labels)
+
+        correct_counter = 0
+        confusion_matrix = np.zeros((n, n), dtype=int)
+        for sample, sample_hash in zip(self.feature_vectors_test, self.sample_hashes_test):
+            true_label = self.ground_truth.get(sample_hash)
+            if true_label is None:
+                red_print('Something went wrong.')
+                continue
+            predicted_label = self.classify_sample(sample)
+
+            if true_label == predicted_label:
+                correct_counter += 1
+            
+            # Build confusion matrix
+            true_index = self.malware_labels.index(true_label)
+            predicted_index = self.malware_labels.index(predicted_label)
             confusion_matrix[true_index][predicted_index] += 1
 
         # Print confusion matrix
@@ -332,7 +451,7 @@ def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int =
     green_print(f'Found {num_features} unique features!\n')
 
     # Now create the feature matrix
-    feature_vectors = np.zeros((num_samples, num_features), dtype=bool)
+    feature_vectors = np.zeros((num_samples, num_features), dtype=np.bool)
     sample_hashes = []
     sample_index = 0
     for filename in ground_truth:
@@ -383,6 +502,19 @@ def one_vs_all(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str],
     multi_svm.test()
 
 
+def one_vs_one(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str], ground_truth: dict[str, str]) -> None:
+    multi_svm = SVM_OneVsOne(feature_vectors, sample_hashes, ground_truth, train_test_split=0.8)
+    multi_svm.verbose = True
+    all_malware_labels = set(ground_truth.values())
+    print(f'Found {len(all_malware_labels)} unique malware types in the dataset')
+    for malware_label in all_malware_labels:
+        multi_svm.append_svm(malware_label)
+
+    multi_svm.train_all(5, 1e-3)
+
+    multi_svm.test()
+
+
 def sklearn_svm_comparison(feature_vectors, labels):
     print("\n--- SVM Kernel Comparison (scikit-learn) ---")
     X_train, X_test, y_train, y_test = train_test_split(
@@ -406,13 +538,18 @@ def sklearn_svm_comparison(feature_vectors, labels):
 
 def main():
     # Malware vs. Benign Classifier
-    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=5561)
-    malware_vs_benign_classifier(feature_vectors, sample_hashes, ground_truth)
+    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=5561)
+    # malware_vs_benign_classifier(feature_vectors, sample_hashes, ground_truth)
 
-    # Now the other types of classifiers
-    # For these types, we do not want the benign samples
+    # One-Vs-All
+    # For this type, we do not want the benign samples
     # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
     # one_vs_all(feature_vectors, sample_hashes, ground_truth)
+
+    # One-Vs-One
+    # For this type, we do not want the benign samples
+    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
+    one_vs_one(feature_vectors, sample_hashes, ground_truth)
 
     """
     # SVM Comparisons
