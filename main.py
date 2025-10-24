@@ -1,4 +1,5 @@
 import os
+import time
 from random import shuffle
 import numpy as np
 import numpy.typing as npt
@@ -217,10 +218,13 @@ class SVM_OneVsAll:
         self.malware_labels.append(malware_label)
     
     def train_all(self, epochs, lr):
+        tick = time.time()
         for i, svm in enumerate(self.svms):
             if self.verbose:
                 print(f'Training SVM {i+1}/{len(self.svms)} for malware type {self.malware_labels[i]}')
             svm.train(epochs, lr)
+        time_elapsed = time.time() - tick
+        print(f'Training time: {time_elapsed:.2f} seconds')
     
     def classify_sample(self, sample: npt.NDArray[np.bool_]) -> str:
         sample_torch = torch.tensor(sample, dtype=torch.float32)
@@ -310,11 +314,13 @@ class SVM_OneVsOne:
 
             svm = SVM(this_feature_vectors, this_sample_hashes, self.ground_truth)
             svm.define_classes(lambda x: 1 if x == malware_label else -1)
+            svm.verbose = self.verbose
             this_svms.append(svm)
         self.svms.append(this_svms)
         self.malware_labels.append(malware_label)
     
     def train_all(self, epochs, lr):
+        tick = time.time()
         total_labels = len(self.svms)
         for i, svms in enumerate(self.svms):
             if not len(svms):
@@ -326,6 +332,9 @@ class SVM_OneVsOne:
                 if self.verbose:
                     print(f'Training SVM {j+1}/{total_svms}')
                 svm.train(epochs, lr)
+        time_elapsed = time.time() - tick
+        print(f'Training time: {time_elapsed:.2f} seconds')
+
 
     def classify_sample(self, sample: npt.NDArray[np.bool_]) -> str:
         sample_torch = torch.tensor(sample, dtype=torch.float32)
@@ -504,7 +513,7 @@ def one_vs_all(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str],
 
 def one_vs_one(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str], ground_truth: dict[str, str]) -> None:
     multi_svm = SVM_OneVsOne(feature_vectors, sample_hashes, ground_truth, train_test_split=0.8)
-    multi_svm.verbose = True
+    multi_svm.verbose = False
     all_malware_labels = set(ground_truth.values())
     print(f'Found {len(all_malware_labels)} unique malware types in the dataset')
     for malware_label in all_malware_labels:
@@ -543,11 +552,13 @@ def main():
 
     # One-Vs-All
     # For this type, we do not want the benign samples
-    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
-    # one_vs_all(feature_vectors, sample_hashes, ground_truth)
+    print('ONE VS ALL')
+    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
+    one_vs_all(feature_vectors, sample_hashes, ground_truth)
 
     # One-Vs-One
     # For this type, we do not want the benign samples
+    print('ONE VS ONE')
     feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
     one_vs_one(feature_vectors, sample_hashes, ground_truth)
 
