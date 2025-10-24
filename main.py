@@ -18,6 +18,14 @@ COLOR_DEFAULT = '\x1b[39m'
 COLOR_GREEN = '\x1b[32m'
 COLOR_RED = '\x1b[31m'
 
+def green_print(msg: str):
+    """Convenient function for printing green text"""
+    print(f'{COLOR_GREEN}{msg}{COLOR_DEFAULT}')
+
+def red_print(msg: str):
+    """Convenient function for printing red text"""
+    print(f'{COLOR_RED}{msg}{COLOR_DEFAULT}')
+
 
 class SVM:
     """Models a Support Vector Machine (SVM) to make decisions"""
@@ -264,15 +272,6 @@ class SVM_OneVsAll:
         green_print(f'Accuracy: {100*correct_counter/len(self.feature_vectors_test):.2f}%')
 
 
-def green_print(msg: str):
-    """Convenient function for printing green text"""
-    print(f'{COLOR_GREEN}{msg}{COLOR_DEFAULT}')
-
-def red_print(msg: str):
-    """Convenient function for printing red text"""
-    print(f'{COLOR_RED}{msg}{COLOR_DEFAULT}')
-
-
 def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int = 0, verbose: bool = True) -> tuple[npt.NDArray[np.bool_], list[str], dict[str, str]]:
     """
     Loads the full dataset from the data contained in the dataset directory
@@ -299,6 +298,16 @@ def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int =
             line = line.strip()
             ground_truth[line.split(',')[0]] = line.split(',')[1]
     
+    # If we defined a top malware samples limit, resolve that now
+    # Go through ground truth and delete malware samples we do not want
+    if top_malware_samples_limit > 0:
+        malware_labels, counts = np.unique(list(ground_truth.values()), return_counts=True)
+        labels_counts_sorted = sorted(zip(malware_labels, counts), key=lambda x: x[1], reverse=True)
+        ground_truth_items = list(ground_truth.items())
+        for sample_hash, malware_label in ground_truth_items:
+            if malware_label not in [x[0] for x in labels_counts_sorted][:top_malware_samples_limit]:
+                del ground_truth[sample_hash]
+    
     # now grab however many benign samples we want
     if benign_samples_limit > 0:
         benign_sample_hashes = []
@@ -317,16 +326,6 @@ def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int =
                 if feature not in feature_to_index:
                     feature_to_index[feature] = feature_count
                     feature_count += 1
-
-    # If we defined a top malware samples limit, resolve that now
-    # Go through ground truth and delete malware samples we do not want
-    if top_malware_samples_limit > 0:
-        malware_labels, counts = np.unique(list(ground_truth.values()), return_counts=True)
-        labels_counts_sorted = sorted(zip(malware_labels, counts), key=lambda x: x[1], reverse=True)
-        ground_truth_items = list(ground_truth.items())
-        for sample_hash, malware_label in ground_truth_items:
-            if malware_label not in [x[0] for x in labels_counts_sorted][:top_malware_samples_limit]:
-                del ground_truth[sample_hash]
     
     num_samples = len(ground_truth)
     num_features = len(feature_to_index)
@@ -407,13 +406,13 @@ def sklearn_svm_comparison(feature_vectors, labels):
 
 def main():
     # Malware vs. Benign Classifier
-    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=5561)
-    # malware_vs_benign_classifier(feature_vectors, sample_hashes, ground_truth)
+    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=5561)
+    malware_vs_benign_classifier(feature_vectors, sample_hashes, ground_truth)
 
     # Now the other types of classifiers
     # For these types, we do not want the benign samples
-    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
-    one_vs_all(feature_vectors, sample_hashes, ground_truth)
+    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
+    # one_vs_all(feature_vectors, sample_hashes, ground_truth)
 
     """
     # SVM Comparisons
