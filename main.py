@@ -545,7 +545,7 @@ def sklearn_svm_comparison(feature_vectors, labels):
     print(f"Linear SVM Accuracy: {acc_linear * 100:.2f}%")
 
     # RBF SVM
-    rbf_clf = SVC(kernel='rbf', gamma='scale')
+    rbf_clf = SVC(kernel='rbf', gamma='scale', max_iter=2000)
     rbf_clf.fit(X_train, y_train)
     y_pred_rbf = rbf_clf.predict(X_test)
     acc_rbf = accuracy_score(y_test, y_pred_rbf)
