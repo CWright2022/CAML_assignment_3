@@ -36,6 +36,7 @@ class SVM:
         self.ground_truth_str = ground_truth
         self.ground_truth_int = dict()
         self.verbose = False
+        self.feature_to_index = dict()  # used to print out feature strings if the user sets it
 
         # Model parameters
         self.C = 0.001
@@ -61,7 +62,6 @@ class SVM:
     
     def train(self, epochs: int, lr: float):
         """Train on all the data that is given. No testing here. Used by the Mutli_SVM"""
-        # TODO: Fix the code duplication between this function and the evaluate function
         # Shuffle and then do train/test split
         p = np.random.permutation(self.feature_vectors.shape[0])
         feature_vectors_train = self.feature_vectors[p]
@@ -179,14 +179,19 @@ class SVM:
         importance = torch.abs(self.w).detach().numpy()
         top10_idx = np.argsort(importance)[-10:]
         bottom10_idx = np.argsort(importance)[:10]
+        index_to_feature = dict()
+        if self.feature_to_index:
+            index_to_feature = {val:key for key,val in self.feature_to_index.items()}
 
         green_print("\nTop 10 Most Important Feature Indices and Weights:")
         for idx in reversed(top10_idx):
-            print(f"Feature {idx}: Weight = {self.w[idx].item():.6f}")
+            feature_name = index_to_feature.get(idx, 'Unknown')
+            print(f"Feature {idx} ({feature_name}): Weight = {self.w[idx].item():.6f}")
 
         green_print("\nBottom 10 Least Important Feature Indices and Weights:")
         for idx in bottom10_idx:
-            print(f"Feature {idx}: Weight = {self.w[idx].item():.6f}")
+            feature_name = index_to_feature.get(idx, 'Unknown')
+            print(f"Feature {idx} ({feature_name}): Weight = {self.w[idx].item():.6f}")
 
 
 class SVM_OneVsAll:
@@ -400,7 +405,7 @@ class SVM_OneVsOne:
         green_print(f'Accuracy: {100*correct_counter/len(self.feature_vectors_test):.2f}%')
 
 
-def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int = 0, verbose: bool = True) -> tuple[npt.NDArray[np.bool_], list[str], dict[str, str]]:
+def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int = 0, verbose: bool = True) -> tuple[npt.NDArray[np.bool_], list[str], dict[str, str], dict[str, int]]:
     """
     Loads the full dataset from the data contained in the dataset directory
 
@@ -413,6 +418,7 @@ def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int =
         feature_vectors (2D numpy array): contains an array for each sample, with 1s and 0s denoting whether each feature is present in that sample
         sample_hashes (list): array that runs parallel to the feature_vectors array. Identifies the hash of each sample in the feature_vectors array.
         ground_truth (dict): maps sample hashes to malware type
+        feature_to_index (dict): maps features to what index they hold in the feature array
     """
     feature_to_index = dict()
     ground_truth = dict()
@@ -487,13 +493,14 @@ def load_data(benign_samples_limit: int = 1000, top_malware_samples_limit: int =
         print(f'Percent that is benign: {(benign_samples_limit/feature_vectors.shape[0])*100:.2f}%')
         print()
 
-    return feature_vectors, sample_hashes, ground_truth
+    return feature_vectors, sample_hashes, ground_truth, feature_to_index
 
 
-def malware_vs_benign_classifier(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str], ground_truth: dict[str, str]) -> None:
+def malware_vs_benign_classifier(feature_vectors: npt.NDArray[np.bool_], sample_hashes: list[str], ground_truth: dict[str, str], feature_to_index: dict[str, int]) -> None:
     svm = SVM(feature_vectors, sample_hashes, ground_truth)
     svm.define_classes(lambda x: 1 if x == 'Benign' else -1)
     svm.verbose = True
+    svm.feature_to_index = feature_to_index  # have to set this if you want to see the actual name of the feature during top 10/bottom 10 read out
 
     svm.evaluate(20, 1e-4, 0.8)
 
@@ -547,20 +554,21 @@ def sklearn_svm_comparison(feature_vectors, labels):
 
 def main():
     # Malware vs. Benign Classifier
-    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=5561)
-    # malware_vs_benign_classifier(feature_vectors, sample_hashes, ground_truth)
+    print('MALWARE VS BENIGN')
+    feature_vectors, sample_hashes, ground_truth, feature_to_index = load_data(benign_samples_limit=5561)
+    malware_vs_benign_classifier(feature_vectors, sample_hashes, ground_truth, feature_to_index)
 
     # One-Vs-All
     # For this type, we do not want the benign samples
-    print('ONE VS ALL')
-    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
-    one_vs_all(feature_vectors, sample_hashes, ground_truth)
+    # print('ONE VS ALL')
+    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
+    # one_vs_all(feature_vectors, sample_hashes, ground_truth)
 
     # One-Vs-One
     # For this type, we do not want the benign samples
-    print('ONE VS ONE')
-    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
-    one_vs_one(feature_vectors, sample_hashes, ground_truth)
+    # print('ONE VS ONE')
+    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
+    # one_vs_one(feature_vectors, sample_hashes, ground_truth)
 
     """
     # SVM Comparisons
