@@ -560,25 +560,23 @@ def main():
 
     # One-Vs-All
     # For this type, we do not want the benign samples
-    # print('ONE VS ALL')
-    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
-    # one_vs_all(feature_vectors, sample_hashes, ground_truth)
+    print('ONE VS ALL')
+    feature_vectors, sample_hashes, ground_truth, _= load_data(benign_samples_limit=0, top_malware_samples_limit=20)
+    one_vs_all(feature_vectors, sample_hashes, ground_truth)
 
     # One-Vs-One
     # For this type, we do not want the benign samples
-    # print('ONE VS ONE')
-    # feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
-    # one_vs_one(feature_vectors, sample_hashes, ground_truth)
+    print('ONE VS ONE')
+    feature_vectors, sample_hashes, ground_truth, _ = load_data(benign_samples_limit=0, top_malware_samples_limit=20)
+    one_vs_one(feature_vectors, sample_hashes, ground_truth)
 
-    """
     # SVM Comparisons
-    feature_vectors, sample_hashes, ground_truth = load_data(benign_samples_limit=1000, verbose=False)
+    feature_vectors, sample_hashes, ground_truth, _ = load_data(benign_samples_limit=1000, verbose=False)
     #convert malware labels into numeric values for sklearn
     labels = [1 if ground_truth[h] == 'Benign' else 0 for h in sample_hashes]
     #run comparison 
     sklearn_svm_comparison(feature_vectors, labels)
-    """
-
+  
 
 if __name__ == '__main__':
     main()
